@@ -1,0 +1,29 @@
+{
+  "name": "blog-link-monitoring",
+  "version": "1.0.0",
+  "description": "主动式网站链接状态监测",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "blog",
+    "links",
+    "monitoring",
+    "vercel"
+  ],
+  "author": "luoy-oss <2557657882@qq.com> (https://www.drluo.top)",
+  "homepage": "https://www.github.com/luoy-oss/blog-link-monitoring",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "mongoose": "^7.5.0",
+    "axios": "^1.5.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
