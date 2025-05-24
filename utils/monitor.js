@@ -20,9 +20,22 @@ async function checkLinkStatus(url) {
   const startTime = Date.now();
   try {
     const response = await axios.get(n_url, {
-      timeout: 10000, // 10秒超时
+      timeout: 30000,             // 30秒超时
       validateStatus: () => true, // 允许任何状态码
-      httpsAgent: new https.Agent({ rejectUnauthorized: false }) // 跳过SSL证书验证
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      headers: {  // 添加浏览器标准头
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Connection': 'keep-alive'
+      },
+      maxRedirects: 10, // 确保跟随重定向
+      beforeRedirect: (options, { headers }) => {
+        // 保持必要头信息在重定向过程中
+        options.headers = Object.assign({}, options.headers, {
+          Referer: options.url
+        });
+      }
     });
 
     
