@@ -140,6 +140,24 @@ monthlyStatsSchema.index({ url: 1, month: 1 }, { unique: true });
 
 const MonthlyStatsModel = mongoose.models.MonthlyStats || mongoose.model('MonthlyStats', monthlyStatsSchema);
 
+// 当月数据表 (CurrentMonthStats) - 仅存储当月每日数据，跨月重置
+const dailyStatSchema = new mongoose.Schema({
+  date: String, // YYYY-MM-DD
+  totalChecks: { type: Number, default: 0 },
+  successfulChecks: { type: Number, default: 0 },
+  failedChecks: { type: Number, default: 0 },
+  totalResponseTime: { type: Number, default: 0 }
+}, { _id: false });
+
+const currentMonthStatsSchema = new mongoose.Schema({
+  url: { type: String, required: true, unique: true },
+  month: { type: String, required: true }, // YYYY-MM
+  stats: [dailyStatSchema],
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const CurrentMonthStatsModel = mongoose.models.CurrentMonthStats || mongoose.model('CurrentMonthStats', currentMonthStatsSchema);
+
 /**
  * 更新或插入链接状态 (Upsert) - 仅更新最新状态
  * @param {Object} data - 链接数据
@@ -199,6 +217,57 @@ async function recordCheckResult(data) {
       },
       { upsert: true, new: true }
     );
+
+    // 4. 更新当月数据表 (CurrentMonthStats)
+    const dateParts = getShanghaiDateParts(checkedAt || now);
+    if (dateParts) {
+      const todayDateStr = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+      const currentMonthStr = `${dateParts.year}-${dateParts.month}`;
+
+      let currentStats = await CurrentMonthStatsModel.findOne({ url });
+
+      if (!currentStats) {
+        currentStats = new CurrentMonthStatsModel({
+          url,
+          month: currentMonthStr,
+          stats: []
+        });
+      }
+
+      // 检查是否跨月，如果跨月则重置
+      if (currentStats.month !== currentMonthStr) {
+        currentStats.month = currentMonthStr;
+        currentStats.stats = []; // 重置统计数据
+      }
+
+      // 查找今天的统计记录
+      let todayStat = currentStats.stats.find(s => s.date === todayDateStr);
+
+      if (!todayStat) {
+        currentStats.stats.push({
+          date: todayDateStr,
+          totalChecks: 0,
+          successfulChecks: 0,
+          failedChecks: 0,
+          totalResponseTime: 0
+        });
+        // 获取新添加的记录引用
+        todayStat = currentStats.stats[currentStats.stats.length - 1];
+      }
+
+      // 更新数据
+      todayStat.totalChecks += 1;
+      if (isSuccess) {
+        todayStat.successfulChecks += 1;
+      } else {
+        todayStat.failedChecks += 1;
+      }
+      todayStat.totalResponseTime += (responseTime || 0);
+      
+      currentStats.updatedAt = new Date();
+      await currentStats.save();
+    }
+
   } catch (err) {
     // 如果历史记录或月度统计写入失败，记录错误但不中断流程
     console.error(`[recordCheckResult] 写入历史/统计数据失败 (${url}):`, err);
@@ -209,9 +278,10 @@ async function recordCheckResult(data) {
 module.exports = {
   connectToDatabase,
   LinkModel,
-  CheckLogModel,     // 导出新模型
-  MonthlyStatsModel, // 导出新模型
+  CheckLogModel,
+  MonthlyStatsModel,
+  CurrentMonthStatsModel,
   toShanghaiDate,
   upsertLinkStatus,
-  recordCheckResult  // 导出新函数
+  recordCheckResult
 };
