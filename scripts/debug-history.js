@@ -14,7 +14,6 @@ const path = require('path');
 const mongoose = require('mongoose');
 const { connectToDatabase, LinkModel, CheckLogModel, MonthlyStatsModel, recordCheckResult } = require('../utils/db');
 const dataApi = require('../api/data');
-const historyApi = require('../api/history');
 const monthlyApi = require('../api/monthly');
 
 // 加载环境变量
