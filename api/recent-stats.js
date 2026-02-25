@@ -28,10 +28,12 @@ module.exports = async (req, res) => {
     
     const { url } = req.query;
     
+    // 如果没有提供URL，则返回所有站点的最近30天数据 (统一获取)
     if (!url) {
-      return res.status(400).json({ 
-        error: true, 
-        message: '请提供要查询的URL' 
+      const allStats = await Recent30DaysStatsModel.find({});
+      return res.json({
+        success: true,
+        data: allStats
       });
     }
 
