@@ -124,6 +124,20 @@ module.exports = async (req, res) => {
         // 再次过滤，确保日期属于目标月份
         $match: {
           date: { $regex: `^${targetMonthStr}` }
+          // 提取日期部分 (格式 YYYY-MM-DD)，使用指定时区
+          date: { 
+            $dateToString: { 
+              format: "%Y-%m-%d", 
+              date: "$checkedAt", 
+              timezone: timezone 
+            } 
+          }
+        }
+      },
+      {
+        // 再次过滤，确保日期属于目标月份
+        $match: {
+          date: { $regex: `^${targetMonthStr}` }
         }
       },
       {
