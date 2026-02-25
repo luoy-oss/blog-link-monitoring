@@ -26,7 +26,7 @@
 2. 在 Vercel 中导入该项目。
 3. 配置环境变量（Environment Variables）：
    - `MONGODB_URI`: MongoDB 连接字符串 (例如: `mongodb+srv://user:pass@cluster.xxx.mongodb.net/monitoring?retryWrites=true&w=majority`)
-   - `GITHUB_REPO`: 你的友链数据来源仓库 (例如: `yourname/blog-data`) [可选，用于自动从 Issue 获取友链]
+   - `GITHUB_REPO`: 你的友链数据来源仓库 (例如: `yourname/blog-data`) [**✅必须** 用于自动从 Issue 获取友链]
    - `GITHUB_TOKEN`: GitHub Token [可选，用于读取 Issue]
 4. 部署项目。
 
@@ -75,7 +75,7 @@
 
 1. 克隆仓库
    ```bash
-   git clone https://github.com/yourname/blog-link-monitoring.git
+   git clone https://github.com/luoy-oss/blog-link-monitoring.git
    cd blog-link-monitoring
    ```
 
