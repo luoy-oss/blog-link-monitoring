@@ -54,6 +54,12 @@ function getShanghaiMonth(value) {
   return `${parts.year}-${parts.month}`;
 }
 
+function getShanghaiMonthStart(value) {
+  const parts = getShanghaiDateParts(value);
+  const fallback = parts || getShanghaiDateParts(new Date());
+  return new Date(`${fallback.year}-${fallback.month}-01T00:00:00.000+08:00`);
+}
+
 /**
  * 连接到MongoDB数据库
  * @returns {Promise} 连接Promise
@@ -199,6 +205,10 @@ async function recordCheckResult(data) {
       },
       { upsert: true, new: true }
     );
+
+    const monthStart = getShanghaiMonthStart(now);
+    await CheckLogModel.deleteMany({ checkedAt: { $lt: monthStart } });
+    await LinkModel.deleteMany({ checkedAt: { $lt: monthStart } });
   } catch (err) {
     // 如果历史记录或月度统计写入失败，记录错误但不中断流程
     console.error(`[recordCheckResult] 写入历史/统计数据失败 (${url}):`, err);
@@ -212,6 +222,8 @@ module.exports = {
   CheckLogModel,     // 导出新模型
   MonthlyStatsModel, // 导出新模型
   toShanghaiDate,
+  getShanghaiMonth,
+  getShanghaiMonthStart,
   upsertLinkStatus,
   recordCheckResult  // 导出新函数
 };
