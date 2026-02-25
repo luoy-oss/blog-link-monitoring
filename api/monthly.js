@@ -25,7 +25,7 @@ module.exports = async (req, res) => {
   try {
     await connectToDatabase();
     
-    const { month } = req.query;
+    const { month, url, urls } = req.query;
     const timezone = 'Asia/Shanghai';
     let startDate, endDate, targetMonthStr, year, monthIndex, startMonth;
 
@@ -99,12 +99,25 @@ module.exports = async (req, res) => {
     }
     // --- 新增逻辑结束 ---
 
+    const urlFilter = [];
+    if (typeof url === 'string' && url.trim()) {
+      urlFilter.push(url.trim());
+    }
+    if (typeof urls === 'string' && urls.trim()) {
+      urls.split(',').map(item => item.trim()).filter(Boolean).forEach(item => urlFilter.push(item));
+    }
+
+    const matchStage = {
+      checkedAt: { $gte: startDate, $lt: endDate }
+    };
+    if (urlFilter.length > 0) {
+      matchStage.url = { $in: Array.from(new Set(urlFilter)) };
+    }
+
     // 聚合查询：按 URL 和 日期 分组，计算平均可用性
     const stats = await CheckLogModel.aggregate([
       {
-        $match: {
-          checkedAt: { $gte: startDate, $lt: endDate }
-        }
+        $match: matchStage
       },
       {
         $project: {
@@ -121,13 +134,6 @@ module.exports = async (req, res) => {
         }
       },
       {
-        // 再次过滤，确保日期属于目标月份
-        $match: {
-          date: { $regex: `^${targetMonthStr}` }
-        }
-      },
-      {
-        // 再次过滤，确保日期属于目标月份
         $match: {
           date: { $regex: `^${targetMonthStr}` }
         }

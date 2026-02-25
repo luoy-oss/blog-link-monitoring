@@ -54,6 +54,12 @@ function getShanghaiMonth(value) {
   return `${parts.year}-${parts.month}`;
 }
 
+function getShanghaiMonthStart(value) {
+  const parts = getShanghaiDateParts(value);
+  const fallback = parts || getShanghaiDateParts(new Date());
+  return new Date(`${fallback.year}-${fallback.month}-01T00:00:00.000+08:00`);
+}
+
 /**
  * 连接到MongoDB数据库
  * @returns {Promise} 连接Promise
@@ -282,6 +288,8 @@ module.exports = {
   MonthlyStatsModel,
   CurrentMonthStatsModel,
   toShanghaiDate,
+  getShanghaiMonth,
+  getShanghaiMonthStart,
   upsertLinkStatus,
   recordCheckResult
 };
