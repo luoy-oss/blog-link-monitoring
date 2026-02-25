@@ -8,7 +8,7 @@
  */
 
 const axios = require('axios');
-const { connectToDatabase, upsertLinkStatus } = require('../utils/db');
+const { connectToDatabase, recordCheckResult } = require('../utils/db');
 const { checkLinkStatus, extractDataFromIssueBody } = require('../utils/monitor');
 const config = require('../config');
 
@@ -107,11 +107,12 @@ module.exports = async (req, res) => {
             ...statusResult,
             title: data.title || data.issueTitle,
             avatar: data.avatar,
-            screenshot: data.screenshot
+            screenshot: data.screenshot,
+            checkedAt: new Date()
           };
 
-          // 更新数据库
-          await upsertLinkStatus(finalData);
+          // 更新数据库 (同时保存：最新状态、历史记录、月度统计)
+          await recordCheckResult(finalData);
           return finalData;
         } catch (err) {
           console.error(`处理 ${data.url} 失败:`, err);
