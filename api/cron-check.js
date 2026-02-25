@@ -24,44 +24,81 @@ module.exports = async (req, res) => {
 
     // 1. 获取 GitHub Issues
     // 构建 API URL
-    const { REPO, LABEL, STATE, SORT, DIRECTION, PER_PAGE, TOKEN } = config.GITHUB;
-    const issuesUrl = `https://api.github.com/repos/${REPO}/issues?sort=${SORT}&direction=${DIRECTION}&state=${STATE}&page=1&per_page=${PER_PAGE}&labels=${LABEL}`;
+    const { REPO, LABEL, STATE, SORT, DIRECTION, PER_PAGE, MAX_PAGES, TOKEN } = config.GITHUB;
     
-    console.log(`正在从 ${issuesUrl} 获取数据...`);
-    
+    let allIssues = [];
+    let page = 1;
+    let hasMore = true;
+
     const headers = {
       'User-Agent': config.MONITOR.USER_AGENT,
       'Accept': 'application/vnd.github.v3+json'
     };
-
-    // 如果配置了 Token，添加到请求头
     if (TOKEN) {
       headers['Authorization'] = `token ${TOKEN}`;
     }
 
-    const issuesResponse = await axios.get(issuesUrl, { headers });
+    // 分页获取所有 Issues
+    while (hasMore && page <= MAX_PAGES) {
+      const issuesUrl = `https://api.github.com/repos/${REPO}/issues?sort=${SORT}&direction=${DIRECTION}&state=${STATE}&page=${page}&per_page=${PER_PAGE}&labels=${LABEL}`;
+      console.log(`正在从 ${issuesUrl} 获取第 ${page} 页数据...`);
+      
+      try {
+        const issuesResponse = await axios.get(issuesUrl, { headers });
+        const issues = issuesResponse.data;
+        
+        if (issues && issues.length > 0) {
+          allIssues = allIssues.concat(issues);
+          console.log(`第 ${page} 页获取到 ${issues.length} 条数据`);
+          
+          // 如果返回数量小于每页数量，说明是最后一页
+          if (issues.length < PER_PAGE) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      } catch (err) {
+        console.error(`获取第 ${page} 页失败:`, err.message);
+        // 如果是 404，可能是页数超出，停止获取
+        if (err.response && err.response.status === 404) {
+          hasMore = false;
+        } else {
+          // 其他错误，根据需要决定是否重试或停止，这里简单起见停止
+          throw err;
+        }
+      }
+    }
 
-    const issues = issuesResponse.data;
-    console.log(`获取到 ${issues.length} 个 Issues`);
+    console.log(`总共获取到 ${allIssues.length} 个 Issues`);
     
     const results = [];
     
     // 2. 处理每个 Issue
-    // 为避免超时，限制并发数或总数。这里简单串行处理，但要注意时间限制。
-    // 如果 Issues 很多 (比如 100 个)，串行检测每个 1-2秒，肯定超时。
-    // 建议：并行处理，限制并发为 5-10。
-    
-    const validIssues = issues.map(issue => {
+    const validIssues = allIssues.map(issue => {
       const data = extractDataFromIssueBody(issue.body);
       return data && data.url ? { ...data, issueTitle: issue.title } : null;
     }).filter(item => item !== null);
 
     console.log(`解析出 ${validIssues.length} 个有效链接`);
 
+    // 限制检测数量，防止 Vercel 函数超时
+    const maxLimit = config.MONITOR.MAX_CHECK_LIMIT;
+    let targetIssues = validIssues;
+    
+    if (maxLimit > 0 && validIssues.length > maxLimit) {
+      console.warn(`警告: 待检测链接数 (${validIssues.length}) 超过限制 (${maxLimit})。为防止超时，本次仅检测前 ${maxLimit} 个链接。`);
+      // 这里的策略是简单的截断。更高级的策略可能是随机选择或按上次检测时间排序。
+      // 为保持简单，我们截取前 N 个。
+      targetIssues = validIssues.slice(0, maxLimit);
+    }
+
     // 分批处理
     const batchSize = config.MONITOR.BATCH_SIZE;
-    for (let i = 0; i < validIssues.length; i += batchSize) {
-      const batch = validIssues.slice(i, i + batchSize);
+    for (let i = 0; i < targetIssues.length; i += batchSize) {
+      const batch = targetIssues.slice(i, i + batchSize);
       const batchPromises = batch.map(async (data) => {
         try {
           const statusResult = await checkLinkStatus(data.url);
