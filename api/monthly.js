@@ -26,24 +26,39 @@ module.exports = async (req, res) => {
     await connectToDatabase();
     
     // 获取月份参数 (格式 YYYY-MM)，默认为当前服务器时间的月份
-    const { month } = req.query;
+    // timezone 默认为 Asia/Shanghai
+    const { month, timezone = 'Asia/Shanghai' } = req.query;
     let startDate, endDate, targetMonthStr;
 
     const now = new Date();
     if (month) {
       const parts = month.split('-');
       if (parts.length === 2) {
+        const year = parseInt(parts[0]);
+        const monthIndex = parseInt(parts[1]) - 1;
         // 构造 UTC 时间的月初和下月初
-        startDate = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, 1));
-        endDate = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]), 1));
+        startDate = new Date(Date.UTC(year, monthIndex, 1));
+        endDate = new Date(Date.UTC(year, monthIndex + 1, 1));
+        
+        // 扩大查询范围，前后各宽限一天以覆盖时区差异
+        startDate.setDate(startDate.getDate() - 1);
+        endDate.setDate(endDate.getDate() + 1);
+        
         targetMonthStr = month;
       } else {
         return res.status(400).json({ error: true, message: 'Invalid month format. Use YYYY-MM' });
       }
     } else {
-      startDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
-      endDate = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1));
-      targetMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const year = now.getFullYear();
+      const monthIndex = now.getMonth();
+      startDate = new Date(Date.UTC(year, monthIndex, 1));
+      endDate = new Date(Date.UTC(year, monthIndex + 1, 1));
+      
+      // 扩大查询范围
+      startDate.setDate(startDate.getDate() - 1);
+      endDate.setDate(endDate.getDate() + 1);
+      
+      targetMonthStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
     }
 
     // 聚合查询：按 URL 和 日期 分组，计算平均可用性
@@ -57,8 +72,20 @@ module.exports = async (req, res) => {
         $project: {
           url: 1,
           available: 1,
-          // 提取日期部分 (格式 YYYY-MM-DD)
-          date: { $dateToString: { format: "%Y-%m-%d", date: "$checkedAt" } }
+          // 提取日期部分 (格式 YYYY-MM-DD)，使用指定时区
+          date: { 
+            $dateToString: { 
+              format: "%Y-%m-%d", 
+              date: "$checkedAt", 
+              timezone: timezone 
+            } 
+          }
+        }
+      },
+      {
+        // 再次过滤，确保日期属于目标月份
+        $match: {
+          date: { $regex: `^${targetMonthStr}` }
         }
       },
       {
