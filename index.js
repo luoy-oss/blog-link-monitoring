@@ -18,7 +18,7 @@ const batchMonitorHandler = require('./api/batch-monitor');
 const cronCheckHandler = require('./api/cron-check');
 const historyHandler = require('./api/history');
 const monthlyHandler = require('./api/monthly');
-const currentMonthHandler = require('./api/current-month');
+const recentStatsHandler = require('./api/recent-stats');
 
 // 加载环境变量
 dotenv.config();
@@ -53,7 +53,7 @@ app.use('/api/batch-monitor', batchMonitorHandler);
 app.use('/api/cron-check', cronCheckHandler);
 app.use('/api/history', historyHandler);
 app.use('/api/monthly', monthlyHandler);
-app.use('/api/current-month', currentMonthHandler);
+app.use('/api/recent-stats', recentStatsHandler);
 
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {

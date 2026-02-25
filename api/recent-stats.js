@@ -1,12 +1,12 @@
 /**
- * 获取指定URL当月数据接口
+ * 获取指定URL最近30天数据接口
  * 
- * 用于获取特定站点的当月每日统计详情。
+ * 用于获取特定站点的最近30天每日统计详情。
  * 
  * @author luoy-oss <2557657882@qq.com>
  */
 
-const { connectToDatabase, CurrentMonthStatsModel } = require('../utils/db');
+const { connectToDatabase, Recent30DaysStatsModel } = require('../utils/db');
 
 module.exports = async (req, res) => {
   // 设置 CORS 头
@@ -35,15 +35,13 @@ module.exports = async (req, res) => {
       });
     }
 
-    const stats = await CurrentMonthStatsModel.findOne({ url });
+    const stats = await Recent30DaysStatsModel.findOne({ url });
 
     if (!stats) {
-       // 如果没有找到数据，可能是因为还没有监测过，或者本月还没有数据
        return res.json({
          success: true,
          data: {
            url,
-           month: null,
            stats: []
          }
        });
@@ -55,7 +53,7 @@ module.exports = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('获取当月数据失败:', error);
+    console.error('获取最近30天数据失败:', error);
     res.status(500).json({ error: true, message: error.message });
   }
 };

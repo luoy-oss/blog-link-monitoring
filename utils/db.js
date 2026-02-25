@@ -146,7 +146,7 @@ monthlyStatsSchema.index({ url: 1, month: 1 }, { unique: true });
 
 const MonthlyStatsModel = mongoose.models.MonthlyStats || mongoose.model('MonthlyStats', monthlyStatsSchema);
 
-// 当月数据表 (CurrentMonthStats) - 仅存储当月每日数据，跨月重置
+// 最近30天数据表 (Recent30DaysStats) - 存储最近30天的每日统计数据，滚动更新
 const dailyStatSchema = new mongoose.Schema({
   date: String, // YYYY-MM-DD
   totalChecks: { type: Number, default: 0 },
@@ -155,14 +155,13 @@ const dailyStatSchema = new mongoose.Schema({
   totalResponseTime: { type: Number, default: 0 }
 }, { _id: false });
 
-const currentMonthStatsSchema = new mongoose.Schema({
+const recent30DaysStatsSchema = new mongoose.Schema({
   url: { type: String, required: true, unique: true },
-  month: { type: String, required: true }, // YYYY-MM
   stats: [dailyStatSchema],
   updatedAt: { type: Date, default: Date.now }
 });
 
-const CurrentMonthStatsModel = mongoose.models.CurrentMonthStats || mongoose.model('CurrentMonthStats', currentMonthStatsSchema);
+const Recent30DaysStatsModel = mongoose.models.Recent30DaysStats || mongoose.model('Recent30DaysStats', recent30DaysStatsSchema);
 
 /**
  * 更新或插入链接状态 (Upsert) - 仅更新最新状态
@@ -224,54 +223,65 @@ async function recordCheckResult(data) {
       { upsert: true, new: true }
     );
 
-    // 4. 更新当月数据表 (CurrentMonthStats)
+    // 4. 更新最近30天数据表 (Recent30DaysStats)
     const dateParts = getShanghaiDateParts(checkedAt || now);
     if (dateParts) {
       const todayDateStr = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
-      const currentMonthStr = `${dateParts.year}-${dateParts.month}`;
 
-      let currentStats = await CurrentMonthStatsModel.findOne({ url });
+      let recentStats = await Recent30DaysStatsModel.findOne({ url });
 
-      if (!currentStats) {
-        currentStats = new CurrentMonthStatsModel({
+      if (!recentStats) {
+        recentStats = new Recent30DaysStatsModel({
           url,
-          month: currentMonthStr,
           stats: []
         });
       }
 
-      // 检查是否跨月，如果跨月则重置
-      if (currentStats.month !== currentMonthStr) {
-        currentStats.month = currentMonthStr;
-        currentStats.stats = []; // 重置统计数据
-      }
-
       // 查找今天的统计记录
-      let todayStat = currentStats.stats.find(s => s.date === todayDateStr);
+      let todayStat = recentStats.stats.find(s => s.date === todayDateStr);
 
       if (!todayStat) {
-        currentStats.stats.push({
+        todayStat = {
           date: todayDateStr,
           totalChecks: 0,
           successfulChecks: 0,
           failedChecks: 0,
           totalResponseTime: 0
-        });
-        // 获取新添加的记录引用
-        todayStat = currentStats.stats[currentStats.stats.length - 1];
+        };
+        recentStats.stats.push(todayStat);
       }
 
       // 更新数据
-      todayStat.totalChecks += 1;
-      if (isSuccess) {
-        todayStat.successfulChecks += 1;
-      } else {
-        todayStat.failedChecks += 1;
+      // 注意：由于 todayStat 可能是新 push 进去的对象（尚未保存），或者是从 mongoose 数组中取出的子文档
+      // 为了确保更新生效，我们通过索引直接操作数组，或者依赖 Mongoose 的子文档更新机制
+      // 这里为了稳妥，重新定位引用
+      const statIndex = recentStats.stats.findIndex(s => s.date === todayDateStr);
+      if (statIndex !== -1) {
+          recentStats.stats[statIndex].totalChecks += 1;
+          if (isSuccess) {
+            recentStats.stats[statIndex].successfulChecks += 1;
+          } else {
+            recentStats.stats[statIndex].failedChecks += 1;
+          }
+          recentStats.stats[statIndex].totalResponseTime += (responseTime || 0);
       }
-      todayStat.totalResponseTime += (responseTime || 0);
+
+      // 清理超过30天的数据
+      // 计算30天前的日期字符串
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const thirtyDaysAgoParts = getShanghaiDateParts(thirtyDaysAgo);
+      const thirtyDaysAgoStr = `${thirtyDaysAgoParts.year}-${thirtyDaysAgoParts.month}-${thirtyDaysAgoParts.day}`;
+
+      // 过滤掉旧数据 (保留日期 >= 30天前的)
+      // 简单的字符串比较在这里可行，因为 YYYY-MM-DD 格式支持字典序比较
+      recentStats.stats = recentStats.stats.filter(s => s.date >= thirtyDaysAgoStr);
       
-      currentStats.updatedAt = new Date();
-      await currentStats.save();
+      // 按日期排序 (确保顺序)
+      recentStats.stats.sort((a, b) => a.date.localeCompare(b.date));
+
+      recentStats.updatedAt = new Date();
+      await recentStats.save();
     }
 
   } catch (err) {
@@ -286,7 +296,7 @@ module.exports = {
   LinkModel,
   CheckLogModel,
   MonthlyStatsModel,
-  CurrentMonthStatsModel,
+  Recent30DaysStatsModel,
   toShanghaiDate,
   getShanghaiMonth,
   getShanghaiMonthStart,
