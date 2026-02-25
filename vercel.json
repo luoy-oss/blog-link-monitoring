@@ -5,5 +5,11 @@
   ],
   "routes": [
     { "src": "/(.*)", "dest": "/index.js" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron-check",
+      "schedule": "0 0 * * *"
+    }
   ]
 }

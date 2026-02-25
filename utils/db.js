@@ -42,7 +42,10 @@ async function connectToDatabase() {
 
 // 链接监测数据结构
 const linkSchema = new mongoose.Schema({
-  url: { type: String, required: true },
+  url: { type: String, required: true, unique: true }, // 添加唯一索引
+  title: String,      // 网站标题
+  avatar: String,     // 头像URL
+  screenshot: String, // 截图URL
   status: { type: Number },
   responseTime: { type: Number },
   available: { type: Boolean },
@@ -53,7 +56,25 @@ const linkSchema = new mongoose.Schema({
 // 创建模型（如果不存在）
 const LinkModel = mongoose.models.Link || mongoose.model('Link', linkSchema);
 
+/**
+ * 更新或插入链接状态 (Upsert)
+ * @param {Object} data - 链接数据
+ * @returns {Promise}
+ */
+async function upsertLinkStatus(data) {
+  const { url, ...updateData } = data;
+  return LinkModel.findOneAndUpdate(
+    { url: url },
+    { 
+      $set: updateData,
+      $setOnInsert: { url: url }
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+}
+
 module.exports = {
   connectToDatabase,
-  LinkModel
+  LinkModel,
+  upsertLinkStatus
 };

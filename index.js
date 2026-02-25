@@ -15,9 +15,11 @@ const path = require('path');
 const monitorHandler = require('./api/monitor');
 const dataHandler = require('./api/data');
 const batchMonitorHandler = require('./api/batch-monitor');
+const cronCheckHandler = require('./api/cron-check');
 
 // 加载环境变量
 dotenv.config();
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,6 +47,7 @@ app.get('/', (req, res) => {
 app.use('/api/monitor', monitorHandler);
 app.use('/api/data', dataHandler);
 app.use('/api/batch-monitor', batchMonitorHandler);
+app.use('/api/cron-check', cronCheckHandler);
 
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
