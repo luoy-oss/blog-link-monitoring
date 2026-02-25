@@ -6,7 +6,7 @@
  * @author luoy-oss <2557657882@qq.com>
  */
 
-const { connectToDatabase, LinkModel } = require('../utils/db');
+const { connectToDatabase, LinkModel, toShanghaiDate } = require('../utils/db');
 const { batchCheckLinks } = require('../utils/monitor');
 
 module.exports = async (req, res) => {
@@ -40,14 +40,18 @@ module.exports = async (req, res) => {
       
       // 批量检查链接状态
       const results = await batchCheckLinks(urls);
+      const normalizedResults = results.map(result => ({
+        ...result,
+        checkedAt: toShanghaiDate(result.checkedAt)
+      }));
       
       // 存储监测结果到数据库
-      await LinkModel.insertMany(results);
+      await LinkModel.insertMany(normalizedResults);
       
       return res.json({
         success: true,
-        count: results.length,
-        data: results
+        count: normalizedResults.length,
+        data: normalizedResults
       });
     } catch (error) {
       console.error('批量监测链接失败:', error);

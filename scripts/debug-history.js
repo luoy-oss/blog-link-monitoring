@@ -12,7 +12,10 @@
 const dotenv = require('dotenv');
 const path = require('path');
 const mongoose = require('mongoose');
-const { connectToDatabase, CheckLogModel, MonthlyStatsModel, recordCheckResult } = require('../utils/db');
+const { connectToDatabase, LinkModel, CheckLogModel, MonthlyStatsModel, recordCheckResult } = require('../utils/db');
+const dataApi = require('../api/data');
+const historyApi = require('../api/history');
+const monthlyApi = require('../api/monthly');
 
 // 加载环境变量
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -24,7 +27,7 @@ const TEST_TITLE = 'Test Site';
 
 async function runDebug() {
   console.log('=== 开始历史记录与月度汇总验证 ===');
-  
+  let hasError = false;
   try {
     // 1. 连接数据库
     if (!process.env.MONGODB_URI) {
@@ -39,6 +42,7 @@ async function runDebug() {
     
     // 2. 清理旧的测试数据
     console.log('\n正在清理旧数据...');
+    await LinkModel.deleteMany({ url: TEST_URL });
     await CheckLogModel.deleteMany({ url: TEST_URL });
     await MonthlyStatsModel.deleteMany({ url: TEST_URL });
     console.log('清理完成');
@@ -101,23 +105,92 @@ async function runDebug() {
       throw new Error('11月统计数据错误');
     }
 
-    console.log('\n=== 验证通过！所有逻辑正常 ===');
+    console.log('\n验证 API 响应...');
+    await callApi(dataApi, {
+      method: 'GET',
+      headers: {},
+      query: { url: TEST_URL }
+    }, 'data');
 
-    // 验证完毕后清理数据
-    console.log('\n正在清理测试数据...');
-    await CheckLogModel.deleteMany({ url: TEST_URL });
-    await MonthlyStatsModel.deleteMany({ url: TEST_URL });
+    await callApi(historyApi, {
+      method: 'GET',
+      headers: {},
+      query: { url: TEST_URL, page: 1, limit: 5 }
+    }, 'history');
+
+    await callApi(monthlyApi, {
+      method: 'GET',
+      headers: {},
+      query: {}
+    }, 'monthly');
+
+    console.log('\n=== 验证通过！所有逻辑正常 ===');
 
   } catch (error) {
     console.error('\n!!! 验证失败 !!!');
     console.error(error);
-    process.exit(1);
+    hasError = true;
   } finally {
-    // 保持连接一会确保输出完成（虽然不是必须的）
-    setTimeout(() => {
-        process.exit(0);
+    try {
+      console.log('\n正在清理测试数据...');
+      await LinkModel.deleteMany({ url: TEST_URL });
+      await CheckLogModel.deleteMany({ url: TEST_URL });
+      await MonthlyStatsModel.deleteMany({ url: TEST_URL });
+      console.log('清理完成');
+    } catch (cleanupError) {
+      console.error('清理测试数据失败:', cleanupError);
+    }
+
+    setTimeout(async () => {
+      try {
+        if (mongoose.connection.readyState === 1) {
+          await mongoose.connection.close();
+        }
+      } finally {
+        process.exit(hasError ? 1 : 0);
+      }
     }, 1000);
   }
+}
+
+function createMockRes(label) {
+  return {
+    statusCode: 200,
+    headers: {},
+    setHeader(name, value) {
+      this.headers[name] = value;
+    },
+    status(code) {
+      this.statusCode = code;
+      return {
+        json: (data) => {
+          console.log(`--- ${label} 响应结果 (Status: ${code}) ---`);
+          console.log(JSON.stringify(data, null, 2));
+          return this;
+        },
+        send: (data) => {
+          console.log(`--- ${label} 响应内容 (Status: ${code}) ---`);
+          console.log(data);
+          return this;
+        }
+      };
+    },
+    json(data) {
+      console.log(`--- ${label} 响应结果 ---`);
+      console.log(JSON.stringify(data, null, 2));
+      return this;
+    },
+    send(data) {
+      console.log(`--- ${label} 响应内容 ---`);
+      console.log(data);
+      return this;
+    }
+  };
+}
+
+async function callApi(handler, req, label) {
+  const res = createMockRes(label);
+  await handler(req, res);
 }
 
 /**

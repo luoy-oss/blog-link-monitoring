@@ -25,26 +25,79 @@ module.exports = async (req, res) => {
   try {
     await connectToDatabase();
     
-    // 获取月份参数 (格式 YYYY-MM)，默认为当前服务器时间的月份
     const { month } = req.query;
-    let startDate, endDate, targetMonthStr;
+    const timezone = 'Asia/Shanghai';
+    let startDate, endDate, targetMonthStr, year, monthIndex, startMonth;
 
     const now = new Date();
     if (month) {
-      const parts = month.split('-');
-      if (parts.length === 2) {
-        // 构造 UTC 时间的月初和下月初
-        startDate = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, 1));
-        endDate = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]), 1));
-        targetMonthStr = month;
-      } else {
+      const match = /^(\d{4})-(\d{2})$/.exec(month);
+      if (!match) {
         return res.status(400).json({ error: true, message: 'Invalid month format. Use YYYY-MM' });
       }
+      year = parseInt(match[1], 10);
+      monthIndex = parseInt(match[2], 10) - 1;
+      if (monthIndex < 0 || monthIndex > 11) {
+        return res.status(400).json({ error: true, message: 'Invalid month value. Use 01-12' });
+      }
     } else {
-      startDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
-      endDate = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1));
-      targetMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit'
+      }).formatToParts(now);
+      const map = {};
+      for (const part of parts) {
+        if (part.type !== 'literal') {
+          map[part.type] = part.value;
+        }
+      }
+      year = parseInt(map.year, 10);
+      monthIndex = parseInt(map.month, 10) - 1;
     }
+
+    startMonth = String(monthIndex + 1).padStart(2, '0');
+    targetMonthStr = `${year}-${startMonth}`;
+    const nextMonthIndex = monthIndex === 11 ? 0 : monthIndex + 1;
+    const nextMonthYear = monthIndex === 11 ? year + 1 : year;
+    startDate = new Date(`${year}-${startMonth}-01T00:00:00+08:00`);
+    endDate = new Date(`${nextMonthYear}-${String(nextMonthIndex + 1).padStart(2, '0')}-01T00:00:00+08:00`);
+
+    // --- 新增逻辑：如果当前月份无数据，尝试回退到最近一次有数据的月份 ---
+    // 只有在未指定 month 参数时才执行此逻辑
+    if (!month) {
+      // 快速检查当前查询范围是否有数据
+      const hasData = await CheckLogModel.findOne({
+        checkedAt: { $gte: startDate, $lt: endDate }
+      }).select('_id');
+
+      if (!hasData) {
+        // 查找最近一条日志
+        const lastLog = await CheckLogModel.findOne().sort({ checkedAt: -1 });
+        if (lastLog && lastLog.checkedAt) {
+          const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: timezone,
+            year: 'numeric',
+            month: '2-digit'
+          }).formatToParts(lastLog.checkedAt);
+          const map = {};
+          for (const part of parts) {
+            if (part.type !== 'literal') {
+              map[part.type] = part.value;
+            }
+          }
+          year = parseInt(map.year, 10);
+          monthIndex = parseInt(map.month, 10) - 1;
+          startMonth = String(monthIndex + 1).padStart(2, '0');
+          targetMonthStr = `${year}-${startMonth}`;
+          const nextMonthIndex = monthIndex === 11 ? 0 : monthIndex + 1;
+          const nextMonthYear = monthIndex === 11 ? year + 1 : year;
+          startDate = new Date(`${year}-${startMonth}-01T00:00:00+08:00`);
+          endDate = new Date(`${nextMonthYear}-${String(nextMonthIndex + 1).padStart(2, '0')}-01T00:00:00+08:00`);
+        }
+      }
+    }
+    // --- 新增逻辑结束 ---
 
     // 聚合查询：按 URL 和 日期 分组，计算平均可用性
     const stats = await CheckLogModel.aggregate([
@@ -57,8 +110,20 @@ module.exports = async (req, res) => {
         $project: {
           url: 1,
           available: 1,
-          // 提取日期部分 (格式 YYYY-MM-DD)
-          date: { $dateToString: { format: "%Y-%m-%d", date: "$checkedAt" } }
+          // 提取日期部分 (格式 YYYY-MM-DD)，使用指定时区
+          date: { 
+            $dateToString: { 
+              format: "%Y-%m-%d", 
+              date: "$checkedAt", 
+              timezone: timezone 
+            } 
+          }
+        }
+      },
+      {
+        // 再次过滤，确保日期属于目标月份
+        $match: {
+          date: { $regex: `^${targetMonthStr}` }
         }
       },
       {

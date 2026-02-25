@@ -8,6 +8,52 @@
 
 const mongoose = require('mongoose');
 
+const SHANGHAI_TIMEZONE = 'Asia/Shanghai';
+
+function getShanghaiDateParts(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SHANGHAI_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+
+  const map = {};
+  for (const part of parts) {
+    if (part.type !== 'literal') {
+      map[part.type] = part.value;
+    }
+  }
+  map.millisecond = String(date.getMilliseconds()).padStart(3, '0');
+  return map;
+}
+
+function toShanghaiDate(value) {
+  const parts = getShanghaiDateParts(value);
+  if (!parts) {
+    return new Date();
+  }
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}.${parts.millisecond}+08:00`);
+}
+
+function getShanghaiMonth(value) {
+  const parts = getShanghaiDateParts(value);
+  if (!parts) {
+    const fallback = getShanghaiDateParts(new Date());
+    return `${fallback.year}-${fallback.month}`;
+  }
+  return `${parts.year}-${parts.month}`;
+}
+
 /**
  * 连接到MongoDB数据库
  * @returns {Promise} 连接Promise
@@ -101,6 +147,7 @@ const MonthlyStatsModel = mongoose.models.MonthlyStats || mongoose.model('Monthl
  */
 async function upsertLinkStatus(data) {
   const { url, ...updateData } = data;
+  updateData.checkedAt = toShanghaiDate(updateData.checkedAt);
   return LinkModel.findOneAndUpdate(
     { url: url },
     { 
@@ -117,46 +164,54 @@ async function upsertLinkStatus(data) {
  */
 async function recordCheckResult(data) {
   const { url, status, responseTime, available, error, checkedAt } = data;
-  const now = checkedAt ? new Date(checkedAt) : new Date();
+  const now = toShanghaiDate(checkedAt);
   
   // 1. 更新当前最新状态 (用于首页显示)
+  // 必须最先执行，确保首页总是显示最新数据
   await upsertLinkStatus(data);
 
-  // 2. 插入历史记录
-  await CheckLogModel.create({
-    url, 
-    status, 
-    responseTime, 
-    available, 
-    error, 
-    checkedAt: now
-  });
+  try {
+    // 2. 插入历史记录
+    await CheckLogModel.create({
+      url, 
+      status, 
+      responseTime, 
+      available, 
+      error, 
+      checkedAt: now
+    });
 
-  // 3. 更新月度统计 (增量更新)
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const isSuccess = available === true;
-  
-  // 使用 $inc 原子操作进行计数累加
-  await MonthlyStatsModel.findOneAndUpdate(
-    { url, month },
-    {
-      $inc: {
-        totalChecks: 1,
-        successfulChecks: isSuccess ? 1 : 0,
-        failedChecks: isSuccess ? 0 : 1,
-        totalResponseTime: responseTime || 0
+    // 3. 更新月度统计 (增量更新)
+    const month = getShanghaiMonth(checkedAt || now);
+    const isSuccess = available === true;
+    
+    // 使用 $inc 原子操作进行计数累加
+    await MonthlyStatsModel.findOneAndUpdate(
+      { url, month },
+      {
+        $inc: {
+          totalChecks: 1,
+          successfulChecks: isSuccess ? 1 : 0,
+          failedChecks: isSuccess ? 0 : 1,
+          totalResponseTime: responseTime || 0
+        },
+        $setOnInsert: { url, month } // 如果是新插入，设置基础字段
       },
-      $setOnInsert: { url, month } // 如果是新插入，设置基础字段
-    },
-    { upsert: true, new: true }
-  );
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    // 如果历史记录或月度统计写入失败，记录错误但不中断流程
+    console.error(`[recordCheckResult] 写入历史/统计数据失败 (${url}):`, err);
+    // throw err; 
+  }
 }
 
 module.exports = {
   connectToDatabase,
   LinkModel,
-  CheckLogModel,
-  MonthlyStatsModel,
+  CheckLogModel,     // 导出新模型
+  MonthlyStatsModel, // 导出新模型
+  toShanghaiDate,
   upsertLinkStatus,
-  recordCheckResult
+  recordCheckResult  // 导出新函数
 };

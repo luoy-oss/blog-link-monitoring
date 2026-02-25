@@ -8,7 +8,7 @@
  */
 
 const axios = require('axios');
-const { connectToDatabase, recordCheckResult } = require('../utils/db');
+const { connectToDatabase, recordCheckResult, toShanghaiDate } = require('../utils/db');
 const { checkLinkStatus, extractDataFromIssueBody } = require('../utils/monitor');
 const config = require('../config');
 
@@ -108,7 +108,7 @@ module.exports = async (req, res) => {
             title: data.title || data.issueTitle,
             avatar: data.avatar,
             screenshot: data.screenshot,
-            checkedAt: new Date()
+            checkedAt: toShanghaiDate(statusResult.checkedAt)
           };
 
           // 更新数据库 (同时保存：最新状态、历史记录、月度统计)
