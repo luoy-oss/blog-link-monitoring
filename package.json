@@ -1,7 +1,7 @@
 {
   "name": "blog-link-monitoring",
   "version": "1.0.0",
-  "description": "主动式网站链接状态监测",
+  "description": "Automated daily website uptime monitoring API powered by Vercel and MongoDB",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
